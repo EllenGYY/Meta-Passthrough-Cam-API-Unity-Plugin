@@ -2,7 +2,7 @@
 
 A Unity plugin that provides access to Meta Quest's passthrough cameras, enabling developers to capture stereo camera frames with calibration data for AR/MR applications.
 
-![No more WebcamTextures!](https://via.placeholder.com/400x300/007acc/ffffff?text=No+more+WebcamTextures!)
+![No more WebcamTextures!](https://github.com/EllenGYY/Meta-Passthrough-Cam-API-Unity-Plugin/blob/main/Media/screenshot.jpg)
 
 *No more WebcamTextures!*
 
