@@ -2,7 +2,7 @@
 
 A Unity plugin that provides access to Meta Quest's passthrough cameras, enabling developers to capture stereo camera frames with calibration data for AR/MR applications.
 
-![No more WebcamTextures!](https://via.placeholder.com/400x300/007acc/ffffff?text=No+more+WebcamTextures!)
+![No more WebcamTextures!](https://github.com/EllenGYY/Meta-Passthrough-Cam-API-Unity-Plugin/blob/main/Media/screenshot.jpg)
 
 *No more WebcamTextures!*
 
@@ -11,6 +11,7 @@ You can download the `.aar` plugin from the release section if you don't want to
 ## Features
 
 - **Dual Camera Access**: Simultaneous access to left and right passthrough cameras
+- **Single Camera Access**: Individual left or right camera access for improved performance
 - **Real-time Streaming**: Live camera frame delivery with timestamps
 - **Camera Calibration**: Intrinsic parameters, distortion coefficients, and pose data
 - **NV12 Format**: Optimized YUV format for efficient processing
@@ -55,12 +56,18 @@ bool QuestCameraPlugin.nativeInitialize(AndroidJavaObject context)
 ```csharp
 // Start dual camera capture
 bool QuestCameraPlugin.nativeStartDualCamera()
+
+// Start single camera capture (true = left eye, false = right eye)
+bool QuestCameraPlugin.nativeStartSingleCamera(bool isLeft)
 ```
 
 #### Stop Camera Streaming
 ```csharp
 // Stop dual camera capture
 void QuestCameraPlugin.nativeStopDualCamera()
+
+// Stop single camera capture (true = left eye, false = right eye)
+void QuestCameraPlugin.nativeStopSingleCamera(bool isLeft)
 ```
 
 ### Callback Setup
@@ -137,6 +144,10 @@ public class QuestCameraManager : MonoBehaviour
                 // Start camera streaming
                 bool started = pluginClass.CallStatic<bool>("nativeStartDualCamera");
                 Debug.Log($"Camera streaming started: {started}");
+                
+                // Alternative: Start single camera (left eye only)
+                // bool started = pluginClass.CallStatic<bool>("nativeStartSingleCamera", true);
+                // Debug.Log($"Left camera streaming started: {started}");
             }
         }
     }
@@ -188,9 +199,43 @@ public class QuestCameraManager : MonoBehaviour
         using (AndroidJavaClass pluginClass = new AndroidJavaClass("com.meta.questcamera.plugin.QuestCameraPlugin"))
         {
             pluginClass.CallStatic("nativeStopDualCamera");
+            // Or if using single camera: pluginClass.CallStatic("nativeStopSingleCamera", true); // Stop left camera
         }
     }
 }
+```
+
+## Single Camera vs Dual Camera
+
+### Performance Comparison
+- **Single Camera**: ~50% reduction in resource usage (memory, processing, battery)
+- **Dual Camera**: Full stereo capture for advanced AR/VR applications
+
+### When to Use Single Camera
+- Object detection and tracking
+- Basic AR overlays
+- Computer vision applications that don't require stereo
+- Battery-sensitive applications
+
+### When to Use Dual Camera
+- Stereo depth estimation
+- 3D reconstruction
+- Advanced SLAM/tracking
+- Full AR/VR passthrough
+
+### Single Camera Usage Example
+```csharp
+// Start left camera only
+bool leftStarted = pluginClass.CallStatic<bool>("nativeStartSingleCamera", true);
+
+// Start right camera only  
+bool rightStarted = pluginClass.CallStatic<bool>("nativeStartSingleCamera", false);
+
+// Stop left camera
+pluginClass.CallStatic("nativeStopSingleCamera", true);
+
+// Stop right camera
+pluginClass.CallStatic("nativeStopSingleCamera", false);
 ```
 
 ## Frame Format Details

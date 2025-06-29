@@ -84,6 +84,12 @@ class QuestCameraPlugin private constructor() {
         @JvmStatic
         external fun nativeStopDualCamera()
         
+        @JvmStatic
+        external fun nativeStartSingleCamera(isLeft: Boolean): Boolean
+        
+        @JvmStatic
+        external fun nativeStopSingleCamera(isLeft: Boolean)
+        
         init {
             try {
                 System.loadLibrary("questcameraplugin")
@@ -113,6 +119,9 @@ class QuestCameraPlugin private constructor() {
     private var leftCameraInfo: CameraInfo? = null
     private var rightCameraInfo: CameraInfo? = null
     
+    private var isLeftCameraActive = false
+    private var isRightCameraActive = false
+    
     // Called from JNI
     fun initialize(context: Context): Boolean {
         Log.d(TAG, "Initializing QuestCameraPlugin")
@@ -135,7 +144,12 @@ class QuestCameraPlugin private constructor() {
         }
         
         return try {
-            openCamera(leftInfo, true) && openCamera(rightInfo, false)
+            val success = openCamera(leftInfo, true) && openCamera(rightInfo, false)
+            if (success) {
+                isLeftCameraActive = true
+                isRightCameraActive = true
+            }
+            success
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start cameras: ${e.message}")
             onCameraError("Failed to start cameras: ${e.message}")
@@ -162,6 +176,74 @@ class QuestCameraPlugin private constructor() {
         rightCamera = null
         leftImageReader = null
         rightImageReader = null
+        
+        isLeftCameraActive = false
+        isRightCameraActive = false
+    }
+    
+    // Called from JNI
+    @RequiresPermission(Manifest.permission.CAMERA)
+    fun startSingleCamera(isLeft: Boolean): Boolean {
+        Log.d(TAG, "Starting ${if (isLeft) "left" else "right"} camera only")
+        
+        val cameraInfo = if (isLeft) {
+            leftCameraInfo ?: run {
+                Log.e(TAG, "Left camera info not available")
+                return false
+            }
+        } else {
+            rightCameraInfo ?: run {
+                Log.e(TAG, "Right camera info not available")
+                return false
+            }
+        }
+        
+        return try {
+            val success = openCamera(cameraInfo, isLeft)
+            if (success) {
+                if (isLeft) {
+                    isLeftCameraActive = true
+                } else {
+                    isRightCameraActive = true
+                }
+            }
+            success
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start ${if (isLeft) "left" else "right"} camera: ${e.message}")
+            onCameraError("Failed to start ${if (isLeft) "left" else "right"} camera: ${e.message}")
+            false
+        }
+    }
+    
+    // Called from JNI
+    fun stopSingleCamera(isLeft: Boolean) {
+        Log.d(TAG, "Stopping ${if (isLeft) "left" else "right"} camera")
+        
+        if (isLeft && isLeftCameraActive) {
+            leftSession?.stopRepeating()
+            leftSession?.close()
+            leftCamera?.close()
+            leftImageReader?.close()
+            
+            leftSession = null
+            leftCamera = null
+            leftImageReader = null
+            isLeftCameraActive = false
+            Log.d(TAG, "Left camera stopped")
+        } else if (!isLeft && isRightCameraActive) {
+            rightSession?.stopRepeating()
+            rightSession?.close()
+            rightCamera?.close()
+            rightImageReader?.close()
+            
+            rightSession = null
+            rightCamera = null
+            rightImageReader = null
+            isRightCameraActive = false
+            Log.d(TAG, "Right camera stopped")
+        } else {
+            Log.w(TAG, "${if (isLeft) "Left" else "Right"} camera is not active, nothing to stop")
+        }
     }
     
     private fun discoverCameras(): Boolean {

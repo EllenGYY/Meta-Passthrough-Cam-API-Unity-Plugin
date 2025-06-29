@@ -240,6 +240,113 @@ Java_com_meta_questcamera_plugin_QuestCameraPlugin_nativeStopDualCamera(JNIEnv *
     LOGD("Stop dual camera completed");
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_meta_questcamera_plugin_QuestCameraPlugin_nativeStartSingleCamera(JNIEnv *env, jclass clazz, jboolean isLeft) {
+    LOGD("Native start single camera called (isLeft: %d)", isLeft);
+    
+    // Get the QuestCameraPlugin class
+    jclass pluginClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin");
+    if (!pluginClass) {
+        LOGE("Failed to find QuestCameraPlugin class");
+        return JNI_FALSE;
+    }
+    
+    // Get the companion object
+    jclass companionClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin$Companion");
+    if (!companionClass) {
+        LOGE("Failed to find QuestCameraPlugin Companion class");
+        return JNI_FALSE;
+    }
+    
+    jfieldID companionField = env->GetStaticFieldID(pluginClass, "Companion", "Lcom/meta/questcamera/plugin/QuestCameraPlugin$Companion;");
+    if (!companionField) {
+        LOGE("Failed to find Companion field");
+        return JNI_FALSE;
+    }
+    
+    jobject companionObject = env->GetStaticObjectField(pluginClass, companionField);
+    if (!companionObject) {
+        LOGE("Failed to get companion object");
+        return JNI_FALSE;
+    }
+    
+    jmethodID getInstanceMethod = env->GetMethodID(companionClass, "getInstance", "()Lcom/meta/questcamera/plugin/QuestCameraPlugin;");
+    if (!getInstanceMethod) {
+        LOGE("Failed to find getInstance method");
+        return JNI_FALSE;
+    }
+    
+    jobject pluginInstance = env->CallObjectMethod(companionObject, getInstanceMethod);
+    if (!pluginInstance) {
+        LOGE("Failed to get plugin instance");
+        return JNI_FALSE;
+    }
+    
+    // Call startSingleCamera method
+    jmethodID startMethod = env->GetMethodID(pluginClass, "startSingleCamera", "(Z)Z");
+    if (!startMethod) {
+        LOGE("Failed to find startSingleCamera method");
+        return JNI_FALSE;
+    }
+    
+    jboolean result = env->CallBooleanMethod(pluginInstance, startMethod, isLeft);
+    LOGD("Start single camera result: %d", result);
+    return result;
+}
+
+JNIEXPORT void JNICALL
+Java_com_meta_questcamera_plugin_QuestCameraPlugin_nativeStopSingleCamera(JNIEnv *env, jclass clazz, jboolean isLeft) {
+    LOGD("Native stop single camera called (isLeft: %d)", isLeft);
+    
+    // Get the QuestCameraPlugin class
+    jclass pluginClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin");
+    if (!pluginClass) {
+        LOGE("Failed to find QuestCameraPlugin class");
+        return;
+    }
+    
+    // Get the companion object
+    jclass companionClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin$Companion");
+    if (!companionClass) {
+        LOGE("Failed to find QuestCameraPlugin Companion class");
+        return;
+    }
+    
+    jfieldID companionField = env->GetStaticFieldID(pluginClass, "Companion", "Lcom/meta/questcamera/plugin/QuestCameraPlugin$Companion;");
+    if (!companionField) {
+        LOGE("Failed to find Companion field");
+        return;
+    }
+    
+    jobject companionObject = env->GetStaticObjectField(pluginClass, companionField);
+    if (!companionObject) {
+        LOGE("Failed to get companion object");
+        return;
+    }
+    
+    jmethodID getInstanceMethod = env->GetMethodID(companionClass, "getInstance", "()Lcom/meta/questcamera/plugin/QuestCameraPlugin;");
+    if (!getInstanceMethod) {
+        LOGE("Failed to find getInstance method");
+        return;
+    }
+    
+    jobject pluginInstance = env->CallObjectMethod(companionObject, getInstanceMethod);
+    if (!pluginInstance) {
+        LOGE("Failed to get plugin instance");
+        return;
+    }
+    
+    // Call stopSingleCamera method with boolean parameter
+    jmethodID stopMethod = env->GetMethodID(pluginClass, "stopSingleCamera", "(Z)V");
+    if (!stopMethod) {
+        LOGE("Failed to find stopSingleCamera method");
+        return;
+    }
+    
+    env->CallVoidMethod(pluginInstance, stopMethod, isLeft);
+    LOGD("Stop single camera completed");
+}
+
 // Called from Kotlin when frames are available
 JNIEXPORT void JNICALL
 Java_com_meta_questcamera_plugin_QuestCameraPlugin_onLeftFrameAvailable(
