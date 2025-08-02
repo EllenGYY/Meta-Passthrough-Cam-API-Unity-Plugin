@@ -5,11 +5,15 @@ plugins {
 
 android {
     namespace = "com.meta.questcamera.plugin"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
-        minSdk = 34
+        minSdk = 29        // Fix: Change from 1 to 29
         consumerProguardFiles("consumer-rules.pro")
+        
+        ndk {
+            abiFilters.add("arm64-v8a")
+        }
     }
     
     ndkVersion = "26.1.10909125"
@@ -32,11 +36,11 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "11"
     }
 }
 

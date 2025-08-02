@@ -25,6 +25,8 @@ import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.params.OutputConfiguration
 import android.hardware.camera2.params.SessionConfiguration
+import android.hardware.camera2.params.StreamConfigurationMap
+import android.util.Size
 import android.media.Image
 import android.media.ImageReader
 import android.os.Handler
@@ -98,6 +100,42 @@ class XrCameraDemoViewModel(application: Application) : AndroidViewModel(applica
       val lensTranslation = cameraCharacteristics.get(CameraCharacteristics.LENS_POSE_TRANSLATION)
       val cameraSource = cameraCharacteristics.get(KEY_SOURCE)
 
+      // Check available output sizes for different formats
+      val map = cameraCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+      if (map != null) {
+        logv("***** Available Output Sizes for Camera $cameraId *****")
+        
+        // Check YUV_420_888 format (what the plugin uses)
+        val yuvSizes = map.getOutputSizes(ImageFormat.YUV_420_888)
+        if (yuvSizes != null) {
+          logv("YUV_420_888 sizes: ${yuvSizes.joinToString(", ") { "${it.width}x${it.height}" }}")
+        } else {
+          logv("YUV_420_888: No sizes available")
+        }
+        
+        // Check JPEG format
+        val jpegSizes = map.getOutputSizes(ImageFormat.JPEG)
+        if (jpegSizes != null) {
+          logv("JPEG sizes: ${jpegSizes.joinToString(", ") { "${it.width}x${it.height}" }}")
+        } else {
+          logv("JPEG: No sizes available")
+        }
+        
+        // Check all supported formats
+        val outputFormats = map.outputFormats
+        logv("Supported output formats: ${outputFormats.joinToString(", ")}")
+        
+        // Log high resolution sizes if available
+        val highResSizes = map.getHighResolutionOutputSizes(ImageFormat.YUV_420_888)
+        if (highResSizes != null) {
+          logv("High-res YUV_420_888 sizes: ${highResSizes.joinToString(", ") { "${it.width}x${it.height}" }}")
+        } else {
+          logv("High-res YUV_420_888: No sizes available")
+        }
+      } else {
+        logv("StreamConfigurationMap not available for camera $cameraId")
+      }
+
       cameraConfigs.add(
           CameraConfig(
               id = cameraId,
@@ -114,7 +152,13 @@ class XrCameraDemoViewModel(application: Application) : AndroidViewModel(applica
 
   fun startCamera(previewSurface: Surface) {
     if (activeConfig == null) {
-      openCameraAtPosition(Position.Right, previewSurface)
+      openCameraAtPosition(Position.Right, previewSurface, 1280, 960)
+    }
+  }
+
+  fun startCameraWithResolution(previewSurface: Surface, width: Int, height: Int) {
+    if (activeConfig == null) {
+      openCameraAtPosition(Position.Right, previewSurface, width, height)
     }
   }
 
@@ -132,9 +176,9 @@ class XrCameraDemoViewModel(application: Application) : AndroidViewModel(applica
     stopCamera()
   }
 
-  fun onResume(surface: Surface) {
+  fun onResume(surface: Surface, width: Int = 1280, height: Int = 960) {
     if (cameraWasActive) {
-      startCamera(surface)
+      startCameraWithResolution(surface, width, height)
       cameraWasActive = false
     }
   }
@@ -175,7 +219,7 @@ class XrCameraDemoViewModel(application: Application) : AndroidViewModel(applica
     }
   }
 
-  private fun openCameraAtPosition(position: Position, previewSurface: Surface) {
+  private fun openCameraAtPosition(position: Position, previewSurface: Surface, width: Int, height: Int) {
     val permissionRequestState = _permissionRequestState.value ?: return
     if (!hasNecessaryPermissions(permissionRequestState)) {
       postEvent("Missing required permissions")
@@ -195,9 +239,26 @@ class XrCameraDemoViewModel(application: Application) : AndroidViewModel(applica
 
     activeConfig = targetConfig
 
+    // Log camera intrinsics when starting camera
+    val cameraCharacteristics = cameraManager.getCameraCharacteristics(targetConfig.id)
+    val intrinsics = cameraCharacteristics.get(CameraCharacteristics.LENS_INTRINSIC_CALIBRATION)
+    val distortion = cameraCharacteristics.get(CameraCharacteristics.LENS_DISTORTION)
+    
+    logv("***** Camera Intrinsics for ${targetConfig.id} (${position.name}) at ${width}x${height} *****")
+    if (intrinsics != null && intrinsics.size >= 5) {
+      logv("Intrinsics: fx=${intrinsics[0]}, fy=${intrinsics[1]}, cx=${intrinsics[2]}, cy=${intrinsics[3]}, s=${intrinsics[4]}")
+    } else {
+      logv("Intrinsics: Not available or incomplete")
+    }
+    
+    if (distortion != null) {
+      logv("Distortion coefficients: ${distortion.joinToString(", ")}")
+    } else {
+      logv("Distortion coefficients: Not available")
+    }
+
     imageReader =
-        ImageReader.newInstance(
-            targetConfig.width, targetConfig.height, ImageFormat.YUV_420_888, IMAGE_BUFFER_SIZE)
+        ImageReader.newInstance(width, height, ImageFormat.YUV_420_888, IMAGE_BUFFER_SIZE)
     imageReader.onLatestImage(imageReaderHandler) { image -> processImage(image) }
 
     cameraManager.openCamera(
@@ -274,7 +335,11 @@ class XrCameraDemoViewModel(application: Application) : AndroidViewModel(applica
   private fun processImage(image: Image) {
     val config = activeConfig ?: return
 
-    val brightness = getBrigthness(image.planes[0].buffer, config.width, config.height)
+    // Use actual image dimensions, not config dimensions
+    val actualWidth = image.width
+    val actualHeight = image.height
+    
+    val brightness = getBrigthness(image.planes[0].buffer, actualWidth, actualHeight)
 
     mainHandler.post {
       _uiState.value = _uiState.value?.copy(cameraBrightness = brightness.toFloat())

@@ -30,10 +30,60 @@ typedef void (*FrameCallback)(const uint8_t* frameData, int32_t dataSize,
                              const float* pose, bool isLeft);
 typedef void (*ErrorCallback)(const char* errorMessage);
 
+// NEW: Stereo frame callback
+typedef void (*StereoFrameCallback)(const uint8_t* frameData, int32_t dataSize,
+                                   int32_t width, int32_t height, int64_t timestamp,
+                                   const float* stereoMetadata, int32_t metadataSize);
+
 static FrameCallback g_leftFrameCallback = nullptr;
 static FrameCallback g_rightFrameCallback = nullptr;
 static ErrorCallback g_errorCallback = nullptr;
+static StereoFrameCallback g_stereoFrameCallback = nullptr; // NEW
 static JavaVM* g_jvm = nullptr;
+
+// Helper function to get plugin instance
+static jobject getPluginInstance(JNIEnv* env) {
+    jclass pluginClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin");
+    if (!pluginClass) {
+        LOGE("Failed to find QuestCameraPlugin class");
+        return nullptr;
+    }
+    
+    // Get companion object
+    jclass companionClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin$Companion");
+    if (!companionClass) {
+        LOGE("Failed to find Companion class");
+        return nullptr;
+    }
+    
+    jfieldID companionField = env->GetStaticFieldID(pluginClass, "Companion", "Lcom/meta/questcamera/plugin/QuestCameraPlugin$Companion;");
+    if (!companionField) {
+        LOGE("Failed to find Companion field");
+        return nullptr;
+    }
+    
+    jobject companion = env->GetStaticObjectField(pluginClass, companionField);
+    if (!companion) {
+        LOGE("Failed to get Companion object");
+        return nullptr;
+    }
+    
+    // Get getInstance method from companion
+    jmethodID getInstanceMethod = env->GetMethodID(companionClass, "getInstance", "()Lcom/meta/questcamera/plugin/QuestCameraPlugin;");
+    if (!getInstanceMethod) {
+        LOGE("Failed to find getInstance method");
+        return nullptr;
+    }
+    
+    // Get the plugin instance
+    jobject instance = env->CallObjectMethod(companion, getInstanceMethod);
+    if (!instance) {
+        LOGE("Failed to get plugin instance");
+        return nullptr;
+    }
+    
+    return instance;
+}
 
 extern "C" {
 
@@ -56,49 +106,26 @@ Java_com_meta_questcamera_plugin_QuestCameraPlugin_setErrorCallback(JNIEnv *env,
     g_errorCallback = reinterpret_cast<ErrorCallback>(callback);
 }
 
+// NEW: Stereo frame callback setter
+JNIEXPORT void JNICALL
+Java_com_meta_questcamera_plugin_QuestCameraPlugin_setStereoFrameCallback(JNIEnv *env, jclass clazz, jlong callback) {
+    LOGD("Setting stereo frame callback: %p", (void*)callback);
+    g_stereoFrameCallback = reinterpret_cast<StereoFrameCallback>(callback);
+}
+
 // Unity calls these for camera control
 JNIEXPORT jboolean JNICALL
 Java_com_meta_questcamera_plugin_QuestCameraPlugin_nativeInitialize(JNIEnv *env, jclass clazz, jobject context) {
     LOGD("Native initialize called");
     
-    // Since nativeInitialize is a static method in the companion object,
-    // we need to get the companion and call getInstance, then call initialize on that instance
+    jobject instance = getPluginInstance(env);
+    if (!instance) {
+        return JNI_FALSE;
+    }
+    
     jclass pluginClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin");
     if (!pluginClass) {
         LOGE("Failed to find QuestCameraPlugin class");
-        return JNI_FALSE;
-    }
-    
-    // Get companion object
-    jclass companionClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin$Companion");
-    if (!companionClass) {
-        LOGE("Failed to find Companion class");
-        return JNI_FALSE;
-    }
-    
-    jfieldID companionField = env->GetStaticFieldID(pluginClass, "Companion", "Lcom/meta/questcamera/plugin/QuestCameraPlugin$Companion;");
-    if (!companionField) {
-        LOGE("Failed to find Companion field");
-        return JNI_FALSE;
-    }
-    
-    jobject companion = env->GetStaticObjectField(pluginClass, companionField);
-    if (!companion) {
-        LOGE("Failed to get Companion object");
-        return JNI_FALSE;
-    }
-    
-    // Get instance method from companion
-    jmethodID getInstanceMethod = env->GetMethodID(companionClass, "getInstance", "()Lcom/meta/questcamera/plugin/QuestCameraPlugin;");
-    if (!getInstanceMethod) {
-        LOGE("Failed to find getInstance method");
-        return JNI_FALSE;
-    }
-    
-    // Get the plugin instance
-    jobject instance = env->CallObjectMethod(companion, getInstanceMethod);
-    if (!instance) {
-        LOGE("Failed to get plugin instance");
         return JNI_FALSE;
     }
     
@@ -137,41 +164,14 @@ JNIEXPORT jboolean JNICALL
 Java_com_meta_questcamera_plugin_QuestCameraPlugin_nativeStartDualCamera(JNIEnv *env, jclass clazz) {
     LOGD("Native start dual camera called");
     
-    // Get the QuestCameraPlugin class
+    jobject pluginInstance = getPluginInstance(env);
+    if (!pluginInstance) {
+        return JNI_FALSE;
+    }
+    
     jclass pluginClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin");
     if (!pluginClass) {
         LOGE("Failed to find QuestCameraPlugin class");
-        return JNI_FALSE;
-    }
-    
-    // Get the companion object
-    jclass companionClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin$Companion");
-    if (!companionClass) {
-        LOGE("Failed to find QuestCameraPlugin Companion class");
-        return JNI_FALSE;
-    }
-    
-    jfieldID companionField = env->GetStaticFieldID(pluginClass, "Companion", "Lcom/meta/questcamera/plugin/QuestCameraPlugin$Companion;");
-    if (!companionField) {
-        LOGE("Failed to find Companion field");
-        return JNI_FALSE;
-    }
-    
-    jobject companionObject = env->GetStaticObjectField(pluginClass, companionField);
-    if (!companionObject) {
-        LOGE("Failed to get companion object");
-        return JNI_FALSE;
-    }
-    
-    jmethodID getInstanceMethod = env->GetMethodID(companionClass, "getInstance", "()Lcom/meta/questcamera/plugin/QuestCameraPlugin;");
-    if (!getInstanceMethod) {
-        LOGE("Failed to find getInstance method");
-        return JNI_FALSE;
-    }
-    
-    jobject pluginInstance = env->CallObjectMethod(companionObject, getInstanceMethod);
-    if (!pluginInstance) {
-        LOGE("Failed to get plugin instance");
         return JNI_FALSE;
     }
     
@@ -191,41 +191,14 @@ JNIEXPORT void JNICALL
 Java_com_meta_questcamera_plugin_QuestCameraPlugin_nativeStopDualCamera(JNIEnv *env, jclass clazz) {
     LOGD("Native stop dual camera called");
     
-    // Get the QuestCameraPlugin class
+    jobject pluginInstance = getPluginInstance(env);
+    if (!pluginInstance) {
+        return;
+    }
+    
     jclass pluginClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin");
     if (!pluginClass) {
         LOGE("Failed to find QuestCameraPlugin class");
-        return;
-    }
-    
-    // Get the companion object
-    jclass companionClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin$Companion");
-    if (!companionClass) {
-        LOGE("Failed to find QuestCameraPlugin Companion class");
-        return;
-    }
-    
-    jfieldID companionField = env->GetStaticFieldID(pluginClass, "Companion", "Lcom/meta/questcamera/plugin/QuestCameraPlugin$Companion;");
-    if (!companionField) {
-        LOGE("Failed to find Companion field");
-        return;
-    }
-    
-    jobject companionObject = env->GetStaticObjectField(pluginClass, companionField);
-    if (!companionObject) {
-        LOGE("Failed to get companion object");
-        return;
-    }
-    
-    jmethodID getInstanceMethod = env->GetMethodID(companionClass, "getInstance", "()Lcom/meta/questcamera/plugin/QuestCameraPlugin;");
-    if (!getInstanceMethod) {
-        LOGE("Failed to find getInstance method");
-        return;
-    }
-    
-    jobject pluginInstance = env->CallObjectMethod(companionObject, getInstanceMethod);
-    if (!pluginInstance) {
-        LOGE("Failed to get plugin instance");
         return;
     }
     
@@ -244,41 +217,14 @@ JNIEXPORT jboolean JNICALL
 Java_com_meta_questcamera_plugin_QuestCameraPlugin_nativeStartSingleCamera(JNIEnv *env, jclass clazz, jboolean isLeft) {
     LOGD("Native start single camera called (isLeft: %d)", isLeft);
     
-    // Get the QuestCameraPlugin class
+    jobject pluginInstance = getPluginInstance(env);
+    if (!pluginInstance) {
+        return JNI_FALSE;
+    }
+    
     jclass pluginClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin");
     if (!pluginClass) {
         LOGE("Failed to find QuestCameraPlugin class");
-        return JNI_FALSE;
-    }
-    
-    // Get the companion object
-    jclass companionClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin$Companion");
-    if (!companionClass) {
-        LOGE("Failed to find QuestCameraPlugin Companion class");
-        return JNI_FALSE;
-    }
-    
-    jfieldID companionField = env->GetStaticFieldID(pluginClass, "Companion", "Lcom/meta/questcamera/plugin/QuestCameraPlugin$Companion;");
-    if (!companionField) {
-        LOGE("Failed to find Companion field");
-        return JNI_FALSE;
-    }
-    
-    jobject companionObject = env->GetStaticObjectField(pluginClass, companionField);
-    if (!companionObject) {
-        LOGE("Failed to get companion object");
-        return JNI_FALSE;
-    }
-    
-    jmethodID getInstanceMethod = env->GetMethodID(companionClass, "getInstance", "()Lcom/meta/questcamera/plugin/QuestCameraPlugin;");
-    if (!getInstanceMethod) {
-        LOGE("Failed to find getInstance method");
-        return JNI_FALSE;
-    }
-    
-    jobject pluginInstance = env->CallObjectMethod(companionObject, getInstanceMethod);
-    if (!pluginInstance) {
-        LOGE("Failed to get plugin instance");
         return JNI_FALSE;
     }
     
@@ -298,41 +244,14 @@ JNIEXPORT void JNICALL
 Java_com_meta_questcamera_plugin_QuestCameraPlugin_nativeStopSingleCamera(JNIEnv *env, jclass clazz, jboolean isLeft) {
     LOGD("Native stop single camera called (isLeft: %d)", isLeft);
     
-    // Get the QuestCameraPlugin class
+    jobject pluginInstance = getPluginInstance(env);
+    if (!pluginInstance) {
+        return;
+    }
+    
     jclass pluginClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin");
     if (!pluginClass) {
         LOGE("Failed to find QuestCameraPlugin class");
-        return;
-    }
-    
-    // Get the companion object
-    jclass companionClass = env->FindClass("com/meta/questcamera/plugin/QuestCameraPlugin$Companion");
-    if (!companionClass) {
-        LOGE("Failed to find QuestCameraPlugin Companion class");
-        return;
-    }
-    
-    jfieldID companionField = env->GetStaticFieldID(pluginClass, "Companion", "Lcom/meta/questcamera/plugin/QuestCameraPlugin$Companion;");
-    if (!companionField) {
-        LOGE("Failed to find Companion field");
-        return;
-    }
-    
-    jobject companionObject = env->GetStaticObjectField(pluginClass, companionField);
-    if (!companionObject) {
-        LOGE("Failed to get companion object");
-        return;
-    }
-    
-    jmethodID getInstanceMethod = env->GetMethodID(companionClass, "getInstance", "()Lcom/meta/questcamera/plugin/QuestCameraPlugin;");
-    if (!getInstanceMethod) {
-        LOGE("Failed to find getInstance method");
-        return;
-    }
-    
-    jobject pluginInstance = env->CallObjectMethod(companionObject, getInstanceMethod);
-    if (!pluginInstance) {
-        LOGE("Failed to get plugin instance");
         return;
     }
     
@@ -424,6 +343,43 @@ Java_com_meta_questcamera_plugin_QuestCameraPlugin_onRightFrameAvailable(
     env->ReleaseFloatArrayElements(intrinsics, intrinsicsFloat, JNI_ABORT);
     env->ReleaseFloatArrayElements(distortion, distortionFloat, JNI_ABORT);
     env->ReleaseFloatArrayElements(pose, poseFloat, JNI_ABORT);
+}
+
+// NEW: Called from Kotlin when stereo frame is available
+JNIEXPORT void JNICALL
+Java_com_meta_questcamera_plugin_QuestCameraPlugin_onStereoFrameAvailable(
+    JNIEnv *env, jclass clazz, jbyteArray frameData, jint width, jint height,
+    jlong timestamp, jfloatArray stereoMetadata) {
+    
+    if (g_stereoFrameCallback == nullptr) {
+        LOGD("Stereo frame callback is null, skipping frame");
+        return;
+    }
+    
+    // Get array elements
+    jbyte* frameBytes = env->GetByteArrayElements(frameData, nullptr);
+    jfloat* metadataFloat = env->GetFloatArrayElements(stereoMetadata, nullptr);
+    
+    if (!frameBytes || !metadataFloat) {
+        LOGE("Failed to get array elements for stereo frame");
+        return;
+    }
+    
+    jsize dataSize = env->GetArrayLength(frameData);
+    jsize metadataSize = env->GetArrayLength(stereoMetadata);
+    
+    LOGD("Calling stereo frame callback with %d bytes, metadata size: %d", dataSize, metadataSize);
+    
+    // Call Unity stereo callback
+    g_stereoFrameCallback(
+        reinterpret_cast<const uint8_t*>(frameBytes),
+        dataSize, width, height, timestamp,
+        metadataFloat, metadataSize
+    );
+    
+    // Release array elements
+    env->ReleaseByteArrayElements(frameData, frameBytes, JNI_ABORT);
+    env->ReleaseFloatArrayElements(stereoMetadata, metadataFloat, JNI_ABORT);
 }
 
 JNIEXPORT void JNICALL

@@ -51,7 +51,6 @@ data class PermissionRequestState(
 )
 
 sealed class CameraEvent() {
-  data object Empty : CameraEvent()
-
-  data class NotificationEvent(val message: String) : CameraEvent()
+    object Empty : CameraEvent()
+    data class NotificationEvent(val message: String) : CameraEvent()
 }

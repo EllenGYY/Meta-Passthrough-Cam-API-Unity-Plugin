@@ -35,8 +35,11 @@ class QuestCameraPlugin private constructor() {
         private const val TAG = "QuestCameraPlugin"
         private const val IMAGE_BUFFER_SIZE = 3
         
+        // Single instance with lazy initialization
+        private val _instance: QuestCameraPlugin by lazy { QuestCameraPlugin() }
+        
         @JvmStatic
-        val instance: QuestCameraPlugin by lazy { QuestCameraPlugin() }
+        fun getInstance(): QuestCameraPlugin = _instance
         
         // JNI Methods - called from C++
         @JvmStatic
@@ -64,6 +67,16 @@ class QuestCameraPlugin private constructor() {
         @JvmStatic
         external fun onCameraError(errorMessage: String)
         
+        // NEW: Stereo frame callback
+        @JvmStatic
+        external fun onStereoFrameAvailable(
+            frameData: ByteArray,
+            width: Int,
+            height: Int,
+            timestamp: Long,
+            stereoMetadata: FloatArray
+        )
+        
         // JNI callback setters - called from Unity
         @JvmStatic
         external fun setLeftFrameCallback(callback: Long)
@@ -73,6 +86,10 @@ class QuestCameraPlugin private constructor() {
         
         @JvmStatic
         external fun setErrorCallback(callback: Long)
+        
+        // NEW: Stereo frame callback setter
+        @JvmStatic
+        external fun setStereoFrameCallback(callback: Long)
         
         // Camera control methods - called from Unity via JNI
         @JvmStatic
@@ -121,6 +138,16 @@ class QuestCameraPlugin private constructor() {
     
     private var isLeftCameraActive = false
     private var isRightCameraActive = false
+    
+    // NEW: Stereo frame combining - enabled by default
+    private val stereoFrameCombiner = StereoFrameCombiner()
+    private var enableStereoCombining = true  // Default to enabled
+    
+    // NEW: Public method to enable/disable stereo combining (optional)
+    fun setStereoCombiningEnabled(enabled: Boolean) {
+        enableStereoCombining = enabled
+        Log.d(TAG, "Stereo combining ${if (enabled) "enabled" else "disabled"}")
+    }
     
     // Called from JNI
     fun initialize(context: Context): Boolean {
@@ -179,6 +206,9 @@ class QuestCameraPlugin private constructor() {
         
         isLeftCameraActive = false
         isRightCameraActive = false
+        
+        // NEW: Clear stereo combiner
+        stereoFrameCombiner.clear()
     }
     
     // Called from JNI
@@ -450,6 +480,7 @@ class QuestCameraPlugin private constructor() {
                 Log.d(TAG, "Added LAST V byte: $lastVByte from plane 2 (position ${uv2Size - 1})")
             }
             
+            // Always send individual frame callbacks (original behavior)
             if (isLeft) {
                 onLeftFrameAvailable(
                     frameData,
@@ -470,6 +501,19 @@ class QuestCameraPlugin private constructor() {
                     cameraInfo.distortion,
                     cameraInfo.pose
                 )
+            }
+            
+            // Additionally, if stereo combining is enabled, also send to combiner
+            if (enableStereoCombining) {
+                val frameDataWrapper = StereoFrameCombiner.FrameData(
+                    frameData,
+                    image.timestamp,
+                    cameraInfo.intrinsics,
+                    cameraInfo.distortion,
+                    cameraInfo.pose
+                )
+                
+                stereoFrameCombiner.onFrameAvailable(isLeft, frameDataWrapper)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing ${if (isLeft) "LEFT" else "RIGHT"} image: ${e.message}")

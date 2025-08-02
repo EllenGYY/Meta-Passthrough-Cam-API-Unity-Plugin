@@ -12,11 +12,13 @@ You can download the `.aar` plugin from the release section if you don't want to
 
 - **Dual Camera Access**: Simultaneous access to left and right passthrough cameras
 - **Single Camera Access**: Individual left or right camera access for improved performance
+- **Stereo Frame Combining**: Automatic side-by-side stereo frame combining with synchronized timestamps
 - **Real-time Streaming**: Live camera frame delivery with timestamps
 - **Camera Calibration**: Intrinsic parameters, distortion coefficients, and pose data
 - **NV12 Format**: Optimized YUV format for efficient processing
 - **Native Performance**: JNI bridge for high-performance frame delivery
 - **Thread-safe**: Proper threading for camera operations and image processing
+- **Memory Optimized**: Buffer pooling and zero-copy operations for optimal performance
 
 ## Requirements
 
@@ -81,19 +83,34 @@ QuestCameraPlugin.setLeftFrameCallback(IntPtr callback)
 // Set callback for right camera frames  
 QuestCameraPlugin.setRightFrameCallback(IntPtr callback)
 
+// Set callback for stereo combined frames (NEW)
+QuestCameraPlugin.setStereoFrameCallback(IntPtr callback)
+
 // Set callback for camera errors
 QuestCameraPlugin.setErrorCallback(IntPtr callback)
 ```
 
 ### Frame Data Structure
 
+#### Individual Camera Frames
 Each camera frame includes:
 - **Frame Data**: NV12 format byte array
-- **Dimensions**: Width and height in pixels
+- **Dimensions**: Width and height in pixels (1280x960 per eye)
 - **Timestamp**: Frame capture timestamp (nanoseconds)
 - **Intrinsics**: 5-element camera intrinsic parameters array `[fx, fy, cx, cy, s]`
 - **Distortion**: 6-element distortion coefficients array
 - **Pose**: 7-element pose array `[tx, ty, tz, qx, qy, qz, qw]` (translation + quaternion)
+
+#### Stereo Combined Frames (NEW)
+Combined stereo frames include:
+- **Frame Data**: Side-by-side NV12 format (2560x960 total)
+- **Dimensions**: Combined width (2x camera width) and height
+- **Timestamp**: Left camera timestamp
+- **Stereo Metadata**: 38-element array containing:
+  - Elements 0-17: Left camera metadata (intrinsics, distortion, pose)
+  - Elements 18-35: Right camera metadata (intrinsics, distortion, pose)
+  - Element 36: Time difference between frames (milliseconds)
+  - Element 37: Interpupillary distance (IPD) in meters
 
 ## Usage Example
 
@@ -108,15 +125,19 @@ public class QuestCameraManager : MonoBehaviour
     private delegate void FrameCallback(IntPtr frameData, int dataSize, int width, int height, 
                                        long timestamp, IntPtr intrinsics, IntPtr distortion, 
                                        IntPtr pose, bool isLeft);
+    private delegate void StereoFrameCallback(IntPtr frameData, int dataSize, int width, int height,
+                                             long timestamp, IntPtr stereoMetadata, int metadataSize);
     private delegate void ErrorCallback(IntPtr errorMessage);
 
     private FrameCallback frameCallback;
+    private StereoFrameCallback stereoFrameCallback;
     private ErrorCallback errorCallback;
 
     void Start()
     {
         // Initialize callbacks
         frameCallback = OnFrameReceived;
+        stereoFrameCallback = OnStereoFrameReceived;
         errorCallback = OnCameraError;
         
         // Get Unity activity context
@@ -135,10 +156,12 @@ public class QuestCameraManager : MonoBehaviour
                 // Set callbacks
                 IntPtr leftPtr = Marshal.GetFunctionPointerForDelegate(frameCallback);
                 IntPtr rightPtr = Marshal.GetFunctionPointerForDelegate(frameCallback);
+                IntPtr stereoPtr = Marshal.GetFunctionPointerForDelegate(stereoFrameCallback);
                 IntPtr errorPtr = Marshal.GetFunctionPointerForDelegate(errorCallback);
                 
                 pluginClass.CallStatic("setLeftFrameCallback", leftPtr.ToInt64());
                 pluginClass.CallStatic("setRightFrameCallback", rightPtr.ToInt64());
+                pluginClass.CallStatic("setStereoFrameCallback", stereoPtr.ToInt64());
                 pluginClass.CallStatic("setErrorCallback", errorPtr.ToInt64());
                 
                 // Start camera streaming
@@ -174,6 +197,21 @@ public class QuestCameraManager : MonoBehaviour
                           intrinsicsArray, distortionArray, poseArray, isLeft);
     }
 
+    private void OnStereoFrameReceived(IntPtr frameData, int dataSize, int width, int height,
+                                      long timestamp, IntPtr stereoMetadata, int metadataSize)
+    {
+        // Copy stereo frame data (side-by-side format)
+        byte[] frameBytes = new byte[dataSize];
+        Marshal.Copy(frameData, frameBytes, 0, dataSize);
+        
+        // Copy stereo metadata (38 elements)
+        float[] metadata = new float[metadataSize];
+        Marshal.Copy(stereoMetadata, metadata, 0, metadataSize);
+        
+        // Process stereo frame
+        ProcessStereoFrame(frameBytes, width, height, timestamp, metadata);
+    }
+
     private void OnCameraError(IntPtr errorMessage)
     {
         string error = Marshal.PtrToStringAnsi(errorMessage);
@@ -191,6 +229,22 @@ public class QuestCameraManager : MonoBehaviour
         
         Debug.Log($"{(isLeft ? "Left" : "Right")} frame: {width}x{height}, " +
                  $"timestamp: {timestamp}, pose: [{pose[0]}, {pose[1]}, {pose[2]}]");
+    }
+
+    private void ProcessStereoFrame(byte[] frameData, int width, int height, long timestamp, float[] metadata)
+    {
+        // Your stereo frame processing logic here
+        // - frameData contains side-by-side NV12 data (2560x960)
+        // - metadata[0-17]: left camera parameters
+        // - metadata[18-35]: right camera parameters  
+        // - metadata[36]: time difference in ms
+        // - metadata[37]: IPD in meters
+        
+        float timeDiff = metadata[36];
+        float ipd = metadata[37];
+        
+        Debug.Log($"Stereo frame: {width}x{height}, timestamp: {timestamp}, " +
+                 $"time diff: {timeDiff}ms, IPD: {ipd}m");
     }
 
     void OnDestroy()
@@ -222,6 +276,46 @@ public class QuestCameraManager : MonoBehaviour
 - 3D reconstruction
 - Advanced SLAM/tracking
 - Full AR/VR passthrough
+
+## Stereo Frame Combining (NEW Feature)
+
+The plugin now includes automatic stereo frame combining that synchronizes left and right camera frames and delivers them as side-by-side combined frames.
+
+### Features
+- **Automatic Synchronization**: Frames are matched based on timestamps with 5ms tolerance
+- **Side-by-side Layout**: Left and right frames combined horizontally (2560x960 total)
+- **Memory Optimized**: Buffer pooling and efficient memory management
+- **Rich Metadata**: Combined metadata includes both camera parameters plus IPD and timing info
+
+### Usage
+When dual camera mode is active, you automatically receive both individual camera callbacks AND combined stereo callbacks:
+
+```csharp
+// Individual frames (original behavior)
+OnFrameReceived(frameData, width=1280, height=960, ..., isLeft=true/false)
+
+// Combined stereo frames (NEW)
+OnStereoFrameReceived(frameData, width=2560, height=960, ..., stereoMetadata[38])
+```
+
+### Stereo Frame Layout
+```
+Combined Frame (2560x960):
+[Left Y Plane][Right Y Plane]    <- Y data side-by-side
+[Left UV Plane][Right UV Plane]  <- UV data side-by-side
+```
+
+### Enabling/Disabling Stereo Combining
+Stereo combining is enabled by default. To disable it:
+
+```csharp
+// Get plugin instance and disable stereo combining (optional)
+using (AndroidJavaClass pluginClass = new AndroidJavaClass("com.meta.questcamera.plugin.QuestCameraPlugin"))
+{
+    AndroidJavaObject instance = pluginClass.CallStatic<AndroidJavaObject>("getInstance");
+    instance.Call("setStereoCombiningEnabled", false);
+}
+```
 
 ### Single Camera Usage Example
 ```csharp

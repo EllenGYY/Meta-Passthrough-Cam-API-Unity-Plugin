@@ -69,7 +69,8 @@ class MainActivity : ComponentActivity() {
             CameraDemoUi(
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
                 cameraState = uiState,
-                onStartCamera = { onStartCamera() },
+                onStartMaxResCamera = { onStartMaxResCamera() },
+                onStartLowResCamera = { onStartLowResCamera() },
                 onStopCamera = { onStopCamera() },
                 onExit = { onExit() })
           }
@@ -103,7 +104,10 @@ class MainActivity : ComponentActivity() {
       }
     }
 
-    previewSurface?.let { viewModel.onResume(it) }
+    previewSurface?.let { 
+      // Resume with default max resolution
+      viewModel.onResume(it, 1280, 960) 
+    }
   }
 
   override fun onPause() {
@@ -116,14 +120,24 @@ class MainActivity : ComponentActivity() {
     viewModel.shutdown()
   }
 
-  private fun onStartCamera() {
+  private fun onStartMaxResCamera() {
     checkPermissions()
     val surface = previewSurface
     if (surface == null) {
       Toast.makeText(this, "Something went wrong - surface is not ready", Toast.LENGTH_SHORT).show()
       return
     }
-    viewModel.startCamera(surface)
+    viewModel.startCameraWithResolution(surface, 1280, 960)
+  }
+
+  private fun onStartLowResCamera() {
+    checkPermissions()
+    val surface = previewSurface
+    if (surface == null) {
+      Toast.makeText(this, "Something went wrong - surface is not ready", Toast.LENGTH_SHORT).show()
+      return
+    }
+    viewModel.startCameraWithResolution(surface, 320, 240)
   }
 
   private fun onStopCamera() {
@@ -151,17 +165,28 @@ class MainActivity : ComponentActivity() {
   fun CameraDemoUi(
       modifier: Modifier = Modifier,
       cameraState: CameraUiState,
-      onStartCamera: () -> Unit,
+      onStartMaxResCamera: () -> Unit,
+      onStartLowResCamera: () -> Unit,
       onStopCamera: () -> Unit,
       onExit: () -> Unit
   ) {
-    Column(
+    Row(
         modifier = modifier,
-        verticalArrangement = Arrangement.Center,
+        horizontalArrangement = Arrangement.Center,
     ) {
-      Row(horizontalArrangement = Arrangement.SpaceBetween) {
-        Button(onClick = onStartCamera) { Text("Start camera") }
-
+      Column(
+          modifier = Modifier.weight(1f),
+          verticalArrangement = Arrangement.Center,
+          horizontalAlignment = Alignment.CenterHorizontally
+      ) {
+        Button(onClick = onStartMaxResCamera) { Text("Start Max Res\n(1280x960)") }
+        
+        Button(onClick = onStartLowResCamera) { Text("Start Low Res\n(320x240)") }
+        
+        Button(onClick = onStopCamera) { Text("Stop Camera") }
+        
+        Button(onClick = onExit) { Text("Exit") }
+        
         Column(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally) {
@@ -169,44 +194,37 @@ class MainActivity : ComponentActivity() {
               Text(cameraState.cameraBrightness.toString())
             }
       }
-      Row(horizontalArrangement = Arrangement.SpaceEvenly) {
-        Button(onClick = onStopCamera) { Text("Stop camera") }
-      }
-      Row(horizontalArrangement = Arrangement.SpaceEvenly) {
-        Button(onClick = onExit) { Text("Exit") }
-      }
-      Row(horizontalArrangement = Arrangement.SpaceEvenly) {
-        AndroidView(
-            modifier = modifier,
-            factory = {
-              TextureView(this@MainActivity).apply {
-                surfaceTextureListener =
-                    object : SurfaceTextureListener {
-                      override fun onSurfaceTextureAvailable(
-                          surface: SurfaceTexture,
-                          width: Int,
-                          height: Int
-                      ) {
-                        updatePreviewTexture(surface, width, height)
-                      }
-
-                      override fun onSurfaceTextureSizeChanged(
-                          surface: SurfaceTexture,
-                          width: Int,
-                          height: Int
-                      ) {
-                        updatePreviewTexture(surface, width, height)
-                      }
-
-                      override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                        return true
-                      }
-
-                      override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+      
+      AndroidView(
+          modifier = Modifier.weight(2f),
+          factory = {
+            TextureView(this@MainActivity).apply {
+              surfaceTextureListener =
+                  object : SurfaceTextureListener {
+                    override fun onSurfaceTextureAvailable(
+                        surface: SurfaceTexture,
+                        width: Int,
+                        height: Int
+                    ) {
+                      updatePreviewTexture(surface, width, height)
                     }
-              }
-            })
-      }
+
+                    override fun onSurfaceTextureSizeChanged(
+                        surface: SurfaceTexture,
+                        width: Int,
+                        height: Int
+                    ) {
+                      updatePreviewTexture(surface, width, height)
+                    }
+
+                    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+                      return true
+                    }
+
+                    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+                  }
+            }
+          })
     }
   }
 }
