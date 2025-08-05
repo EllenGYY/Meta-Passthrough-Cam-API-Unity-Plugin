@@ -26,6 +26,7 @@ import android.media.Image
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.RequiresPermission
 import java.util.concurrent.Executors
@@ -107,6 +108,35 @@ class QuestCameraPlugin private constructor() {
         @JvmStatic
         external fun nativeStopSingleCamera(isLeft: Boolean)
         
+        // Optimized single camera start - automatically disables stereo features for maximum efficiency
+        @JvmStatic
+        @RequiresPermission(Manifest.permission.CAMERA)
+        fun nativeStartSingleCameraOptimized(isLeft: Boolean): Boolean {
+            optimizeForSingleEye()
+            return getInstance().startSingleCamera(isLeft)
+        }
+        
+        // Configuration methods - called from Unity
+        @JvmStatic
+        fun setStereoCombiningEnabled(enabled: Boolean) {
+            getInstance().enableStereoCombining = enabled
+            Log.d(TAG, "Stereo combining ${if (enabled) "enabled" else "disabled"}")
+        }
+        
+        @JvmStatic
+        fun setIndividualCallbacksEnabled(enabled: Boolean) {
+            getInstance().enableIndividualCallbacks = enabled
+            Log.d(TAG, "Individual callbacks ${if (enabled) "enabled" else "disabled"}")
+        }
+        
+        @JvmStatic
+        fun optimizeForSingleEye() {
+            val instance = getInstance()
+            instance.enableStereoCombining = false
+            instance.stereoFrameCombiner.clear()
+            Log.d(TAG, "Optimized for single eye usage: stereo combining disabled")
+        }
+        
         init {
             try {
                 System.loadLibrary("questcameraplugin")
@@ -139,14 +169,19 @@ class QuestCameraPlugin private constructor() {
     private var isLeftCameraActive = false
     private var isRightCameraActive = false
     
+    // Timestamp conversion from boot time to global time
+    private val bootTimeOffset: Long by lazy {
+        System.currentTimeMillis() * 1_000_000L - SystemClock.elapsedRealtimeNanos()
+    }
+    
     // NEW: Stereo frame combining - enabled by default
     private val stereoFrameCombiner = StereoFrameCombiner()
     private var enableStereoCombining = true  // Default to enabled
+    private var enableIndividualCallbacks = true  // Whether to send individual left/right callbacks
     
-    // NEW: Public method to enable/disable stereo combining (optional)
-    fun setStereoCombiningEnabled(enabled: Boolean) {
-        enableStereoCombining = enabled
-        Log.d(TAG, "Stereo combining ${if (enabled) "enabled" else "disabled"}")
+    // Convert camera timestamp (boot time) to global time
+    private fun convertToGlobalTime(bootTimeNanos: Long): Long {
+        return bootTimeNanos + bootTimeOffset
     }
     
     // Called from JNI
@@ -229,6 +264,9 @@ class QuestCameraPlugin private constructor() {
         }
         
         return try {
+            // Clear stereo combiner when starting single camera (optimization)
+            stereoFrameCombiner.clear()
+            
             val success = openCamera(cameraInfo, isLeft)
             if (success) {
                 if (isLeft) {
@@ -370,7 +408,7 @@ class QuestCameraPlugin private constructor() {
                     } else {
                         rightCamera = camera
                     }
-                    createCaptureSession(camera, imageReader, isLeft, cameraInfo.id)
+                    createCaptureSession(camera, imageReader, isLeft)
                 }
                 
                 override fun onDisconnected(camera: CameraDevice) {
@@ -403,7 +441,7 @@ class QuestCameraPlugin private constructor() {
         }
     }
     
-    private fun createCaptureSession(camera: CameraDevice, imageReader: ImageReader, isLeft: Boolean, cameraId: String) {
+    private fun createCaptureSession(camera: CameraDevice, imageReader: ImageReader, isLeft: Boolean) {
         Log.d(TAG, "Creating capture session for ${if (isLeft) "left" else "right"} camera")
         
         val outputConfig = OutputConfiguration(imageReader.surface)
@@ -453,7 +491,6 @@ class QuestCameraPlugin private constructor() {
             
             val width = cameraInfo.width
             val height = cameraInfo.height
-            val uvPixelStride = uvPlane1.pixelStride
             
             // Get buffer sizes
             val ySize = yPlane.buffer.remaining()
@@ -480,34 +517,36 @@ class QuestCameraPlugin private constructor() {
                 Log.d(TAG, "Added LAST V byte: $lastVByte from plane 2 (position ${uv2Size - 1})")
             }
             
-            // Always send individual frame callbacks (original behavior)
-            if (isLeft) {
-                onLeftFrameAvailable(
-                    frameData,
-                    width,
-                    height,
-                    image.timestamp,
-                    cameraInfo.intrinsics,
-                    cameraInfo.distortion,
-                    cameraInfo.pose
-                )
-            } else {
-                onRightFrameAvailable(
-                    frameData,
-                    width,
-                    height,
-                    image.timestamp,
-                    cameraInfo.intrinsics,
-                    cameraInfo.distortion,
-                    cameraInfo.pose
-                )
+            // Send individual frame callbacks only if enabled
+            if (enableIndividualCallbacks) {
+                if (isLeft) {
+                    onLeftFrameAvailable(
+                        frameData,
+                        width,
+                        height,
+                        convertToGlobalTime(image.timestamp),
+                        cameraInfo.intrinsics,
+                        cameraInfo.distortion,
+                        cameraInfo.pose
+                    )
+                } else {
+                    onRightFrameAvailable(
+                        frameData,
+                        width,
+                        height,
+                        convertToGlobalTime(image.timestamp),
+                        cameraInfo.intrinsics,
+                        cameraInfo.distortion,
+                        cameraInfo.pose
+                    )
+                }
             }
             
-            // Additionally, if stereo combining is enabled, also send to combiner
-            if (enableStereoCombining) {
+            // Only send to stereo combiner if both cameras are active and stereo combining is enabled
+            if (enableStereoCombining && isLeftCameraActive && isRightCameraActive) {
                 val frameDataWrapper = StereoFrameCombiner.FrameData(
                     frameData,
-                    image.timestamp,
+                    convertToGlobalTime(image.timestamp),
                     cameraInfo.intrinsics,
                     cameraInfo.distortion,
                     cameraInfo.pose
